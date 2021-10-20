@@ -58,6 +58,10 @@ def get_state_embedder(env):
   if isinstance(env.unwrapped, grid.GridEnv):
     return SimpleGridStateEmbedder
 
+  from envs.room_rearr import RoomRearrDreamWrapper
+  if isinstance(env.unwrapped, RoomRearrDreamWrapper):
+    return RoomRearrangeEmbedder
+
   # Dependencies on OpenGL, so only load if absolutely necessary
   from envs.miniworld import sign
   if isinstance(env, sign.MiniWorldSign):
@@ -796,6 +800,46 @@ class MiniWorldEmbedder(Embedder):
     # (batch_size, 80, 60, 3)
     tensor = torch.stack(obs) / 255.
     return self._network(tensor)
+
+class RoomRearrangeEmbedder(Embedder):
+  """Embeds 80x60 MiniWorld inputs.
+
+  Network taken from gym-miniworld/.
+  """
+  def __init__(self, observation_space, embed_dim):
+    super().__init__(embed_dim)
+
+    # Architecture from room-rearrangement
+    # For 224 x 224 input
+    num_inputs = observation_space.shape[-1]
+    self.total_time = 0
+
+    self._network = nn.Sequential(
+        nn.Conv2d(num_inputs, 32, kernel_size=8, stride=4),
+        nn.ReLU(),
+
+        nn.Conv2d(32, 64, kernel_size=4, stride=2),
+        nn.ReLU(),
+
+        nn.Conv2d(64, 32, kernel_size=3, stride=1),
+
+        Flatten(),
+
+        nn.Linear(32 * 32 * 18, embed_dim),
+        nn.ReLU()
+    )
+
+  def forward(self, obs):
+    # (batch_size, 224, 224, 3)
+    import time
+    start = time.time()
+    obs = [torch.from_numpy(o) for o in obs]
+    tensor = torch.stack(obs) / 255.
+    tensor = tensor.transpose(1, 3)
+    res = self._network(tensor)
+    self.total_time += time.time() - start
+    print(f"Cur total embed time: {self.total_time}")
+    return res
 
 
 class SimpleGridStateEmbedder(Embedder):

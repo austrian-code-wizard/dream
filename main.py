@@ -13,6 +13,7 @@ import dqn
 from envs import grid
 from envs import cooking
 from envs import city
+from envs import room_rearr
 import policy
 import relabel
 import rl
@@ -47,17 +48,20 @@ def run_episode(env, policy, experience_observers=None, test=False):
     experience_observers = []
 
   episode = []
+  #print("resetting env start")
   state = env.reset()
+  #print("resetting env done")
   timestep = 0
-  renders = [maybe_render(env, None, 0, timestep)]
+  #renders = [maybe_render(env, None, 0, timestep)]
+  renders = []
   hidden_state = None
   while True:
     action, next_hidden_state = policy.act(
         state, hidden_state, test=test)
     next_state, reward, done, info = env.step(action)
     timestep += 1
-    renders.append(
-        maybe_render(env, grid.Action(action), reward, timestep))
+    #renders.append(
+    #    maybe_render(env, grid.Action(action), reward, timestep))
     experience = rl.Experience(
         state, action, reward, next_state, done, info, hidden_state,
         next_hidden_state)
@@ -88,6 +92,8 @@ def get_env_class(environment_type):
     return city.MapGridEnv
   elif environment_type == "cooking":
     return cooking.CookingGridEnv
+  elif environment_type == "room_rearrangement":
+    return room_rearr.RoomRearrDreamWrapper
   elif environment_type == "miniworld_sign":
     # Dependencies on OpenGL, so only load if absolutely necessary
     from envs.miniworld import sign
@@ -125,7 +131,7 @@ def log_episode(exploration_episode, exploration_rewards, distances, path):
       f.write("=" * 80 + "\n")
       f.write("Timestep: {}\n".format(t))
       f.write("State: {}\n".format(exp.state.observation))
-      f.write("Action: {}\n".format(grid.Action(exp.action).name))
+      f.write("Action: {}\n".format(exp.action))
       f.write("Reward: {}\n".format(exploration_reward))
       f.write("Distance: {}\n".format(distance))
       f.write("Next state: {}\n".format(exp.next_state.observation))
@@ -226,7 +232,10 @@ def main():
   exploration_steps = 0
   instruction_steps = 0
   for step in tqdm.tqdm(range(1000000)):
+    # TODO: set to exploration mode here
     exploration_env = create_env(step)
+    import time
+    start = time.time()
     exploration_episode, _ = run_episode(
         # Exploration episode gets ignored
         env_class.instruction_wrapper()(
@@ -244,12 +253,15 @@ def main():
     # Don't share same random seed between exploration env and instructions
     instruction_env = env_class.instruction_wrapper()(
         exploration_env, exploration_episode, seed=step + 1)
+    
+    # TODO: set to exploitation mode here
 
     if step % 2 == 0:
       trajectory_embedder.use_ids(False)
     episode, _ = run_episode(
         instruction_env, instruction_agent,
         experience_observers=[instruction_agent.update])
+    print(f"Took {time.time() - start} s")
     instruction_steps += len(episode)
     trajectory_embedder.use_ids(True)
 
@@ -316,7 +328,7 @@ def main():
             instruction_env, instruction_agent, test=True)
         test_rewards.append(sum(exp.reward for exp in episode))
 
-        if test_index < 10:
+        """if test_index < 10:
           frames = [frame.image() for frame in render]
           save_path = os.path.join(
               visualize_dir, "{}-instruction.gif".format(test_index))
@@ -327,7 +339,7 @@ def main():
           save_path = os.path.join(
               visualize_dir, "{}-exploration.gif".format(test_index))
           frames[0].save(save_path, save_all=True, append_images=frames[1:],
-                         duration=750, loop=0, optimize=True, quality=20)
+                         duration=750, loop=0, optimize=True, quality=20)"""
 
       tb_writer.add_scalar(
           "reward/test", np.mean(test_rewards), step,
@@ -354,7 +366,7 @@ def main():
         episode, render = run_episode(
             instruction_env, instruction_agent, test=True)
 
-        frames = [frame.image() for frame in render]
+        """frames = [frame.image() for frame in render]
         save_path = os.path.join(
             visualize_dir, "{}-instruction.gif".format(train_index))
         frames[0].save(save_path, save_all=True, append_images=frames[1:],
@@ -364,7 +376,7 @@ def main():
         save_path = os.path.join(
             visualize_dir, "{}-exploration.gif".format(train_index))
         frames[0].save(save_path, save_all=True, append_images=frames[1:],
-                       duration=750, loop=0)
+                       duration=750, loop=0)"""
       trajectory_embedder.use_ids(True)
 
       if exploration_steps + instruction_steps > int(5e6):
